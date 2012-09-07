@@ -3,5 +3,7 @@
 .project
 .settings
 .springBeans
+vf.gf.*-events.txt
+vf.gf.*-license.cfg
 bin
 build

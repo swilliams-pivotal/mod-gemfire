@@ -13,5 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.vertx.mods.gemfire;
 
-// This is a sub-project
+import java.util.concurrent.CountDownLatch;
+
+import org.vertx.java.core.Handler;
+import org.vertx.java.core.eventbus.Message;
+
+public class CountDownLatchHandler implements Handler<Message<Void>> {
+
+  private CountDownLatch latch;
+
+  public CountDownLatchHandler(CountDownLatch latch) {
+    this.latch = latch;
+  }
+
+  @Override
+  public void handle(Message<Void> event) {
+    latch.countDown();
+  }
+
+}
