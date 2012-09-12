@@ -5,6 +5,7 @@ import org.vertx.java.core.Handler;
 import org.vertx.java.core.eventbus.Message;
 import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
+import org.vertx.mods.gemfire.support.CacheConfigurer;
 
 import com.gemstone.gemfire.cache.Cache;
 import com.gemstone.gemfire.cache.server.CacheServer;
@@ -19,12 +20,9 @@ public class GemFireCacheMod extends BusModBase implements Handler<Message<JsonO
 
     JsonObject config = getContainer().getConfig();
 
-    CacheConfigurer configurer = new CacheConfigurer(config);
+    this.cache = CacheConfigurer.configure(config);
 
-    this.cache = configurer.create();
-
-    JsonObject cacheConfig = config.getObject("cache");
-    JsonArray cacheServers = cacheConfig.getArray("servers");
+    JsonArray cacheServers = config.getArray("servers");
     for (Object o : cacheServers) {
       JsonObject cacheServer = (JsonObject) o;
       addCacheServer(cacheServer);

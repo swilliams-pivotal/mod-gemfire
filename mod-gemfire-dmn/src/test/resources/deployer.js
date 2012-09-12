@@ -20,11 +20,9 @@ load('vertx.js')
 var tu = new TestUtils();
 
 var config = {
-  'cache': {
-    'servers': [
-      {}
-    ]
-  }
+  'cache-xml-file': 'src/test/resources/test-cache-server.xml',  // Use a default location?
+  'properties-file': 'src/test/resources/cache-test.properties', // Use a default location?
+  'module-control-address': 'gemfire.cache.control',
 }
 
 var modID = vertx.deployModule('vertx.gemfire-dmn-v1.0', config, 1, function() {

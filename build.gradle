@@ -116,21 +116,27 @@ subprojects {
 // --------------------------------------------------------------------
 // Sub projects
 
+project(":mod-gemfire-lib") {
+  jar.enabled = true
+  dependencies {
+      // project dependencies
+  }
+}
 
 project(":mod-gemfire-acn") {
-    dependencies {
-        // project dependencies
-    }
+  dependencies {
+    compile project(":mod-gemfire-lib")
+  }
 }
 
 project(":mod-gemfire-dmn") {
-    dependencies {
-        // project dependencies
-    }
+  dependencies {
+    compile project(":mod-gemfire-lib")
+  }
 }
 
 project(":mod-gemfire-gateway") {
-    dependencies {
-        // project dependencies
-    }
+  dependencies {
+    compile project(":mod-gemfire-lib")
+  }
 }

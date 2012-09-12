@@ -20,6 +20,15 @@ load('vertx.js')
 var tu = new TestUtils();
 
 var config = {
+  'cache-xml-file': 'src/test/resources/test-cache-gateway.xml',  // Use a default location?
+  'properties-file': 'src/test/resources/gateway-test.properties', // Use a default location?
+  'module-control-address': 'gemfire.gateway.control',
+  'cache': [
+     
+  ],
+  'regions': [
+    
+  ],
   'gateway-hub': {
     'hub-id': 'gateway-hub-1',
     'hub-port': 50505,

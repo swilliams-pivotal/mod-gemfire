@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE cache PUBLIC
+  "-//GemStone Systems, Inc.//GemFire Declarative Caching 6.6//EN"
+  "http://www.gemstone.com/dtd/cache6_6.dtd">
+  
+<cache>
+<!-- Uncomment the following gateway-hub element to create a gateway hub -->
+<!--
+ <gateway-hub id="RUE" port="22220">
+    <gateway id="FRA">
+      <gateway-endpoint id="FRA-1" host="10.128.240.6" port="22220"/>
+      <gateway-endpoint id="FRA-2" host="10.128.240.7" port="22220"/>
+    </gateway>
+  </gateway-hub>
+-->
+
+  <!-- Uncomment the following cache-server element to modify the listen port -->
+  <cache-server port="44445" max-connections="50"/>
+</cache>
+
+

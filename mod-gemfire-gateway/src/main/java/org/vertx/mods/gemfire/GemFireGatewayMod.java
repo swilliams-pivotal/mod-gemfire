@@ -1,18 +1,21 @@
 package org.vertx.mods.gemfire;
 
 import java.io.IOException;
-import java.util.List;
 
 import org.vertx.java.busmods.BusModBase;
 import org.vertx.java.core.Handler;
 import org.vertx.java.core.eventbus.Message;
 import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
+import org.vertx.mods.gemfire.support.CacheConfigurer;
+import org.vertx.mods.gemfire.support.EventBusCacheListener;
+import org.vertx.mods.gemfire.support.GatewayConfigurer;
+import org.vertx.mods.gemfire.support.RegionConfigurer;
 
 import com.gemstone.gemfire.cache.Cache;
+import com.gemstone.gemfire.cache.CacheListener;
+import com.gemstone.gemfire.cache.Region;
 import com.gemstone.gemfire.cache.util.Gateway;
-import com.gemstone.gemfire.cache.util.GatewayEvent;
-import com.gemstone.gemfire.cache.util.GatewayEventListener;
 import com.gemstone.gemfire.cache.util.GatewayHub;
 
 public class GemFireGatewayMod extends BusModBase implements Handler<Message<JsonObject>> {
@@ -21,67 +24,40 @@ public class GemFireGatewayMod extends BusModBase implements Handler<Message<Jso
 
   private GatewayHub gatewayHub;
 
+  private String controlHandler;
+
   @Override
   public void start() {
     super.start();
 
-    JsonObject config = getContainer().getConfig();
-    String address = config.getString("module-control-address", "vertx.gemfire.gateway.control");
-
-    CacheConfigurer configurer = new CacheConfigurer(config);
-
-    this.cache = configurer.create();
-
-    JsonObject gatewayConfig = config.getObject("gateway-hub");
-
-    String id = gatewayConfig.getString("hub-id");
-    int port = gatewayConfig.getInteger("hub-port");
-
-    this.gatewayHub = cache.addGatewayHub(id, port);
-
-    String bindAddress = gatewayConfig.getString("bindAddress");
-    if (bindAddress != null) {
-      gatewayHub.setBindAddress(bindAddress);
-    }
-
-    boolean manualStart = gatewayConfig.getBoolean("manualStart", false);
-    gatewayHub.setManualStart(manualStart);
-
-    int maximumTimeBetweenPings = gatewayConfig.getInteger("maximumTimeBetweenPings");
-    if (maximumTimeBetweenPings > -1) {
-      gatewayHub.setMaximumTimeBetweenPings(maximumTimeBetweenPings);
-    }
-
-    int socketBufferSize = gatewayConfig.getInteger("socketBufferSize");
-    if (socketBufferSize > -1) {
-      gatewayHub.setSocketBufferSize(socketBufferSize);
-    }
-
-    String startupPolicy = gatewayConfig.getString("startupPolicy");
-    if (startupPolicy != null) {
-      gatewayHub.setStartupPolicy(startupPolicy);
-    }
-
-    JsonArray gateways = gatewayConfig.getArray("gateways");
-    if (gateways != null) {
-      for (Object o : gateways) {
-        JsonObject gatewayConf = (JsonObject) o;
-        registerGateway(gatewayConf);
-      }
-    }
-
     try {
+      JsonObject config = getContainer().getConfig();
+      String address = config.getString("module-control-address", "vertx.gemfire.gateway.control");
+
+      this.cache = CacheConfigurer.configure(config);
+
+      JsonArray regions = config.getArray("regions");
+      registerRegions(regions);
+
+      JsonObject gatewayHubConfig = config.getObject("gateway-hub");
+      this.gatewayHub = GatewayConfigurer.registerGatewayHub(cache, gatewayHubConfig);
+
       gatewayHub.start();
 
-      eb.registerHandler(address, this);
+      this.controlHandler = eb.registerHandler(address, this);
 
-    } catch (IOException e) {
+    } catch (IOException | ClassNotFoundException e) {
       throw new GatewayInitializationException(e);
     }
   }
 
   @Override
   public void stop() throws Exception {
+
+    if (controlHandler != null) {
+      eb.unregisterHandler(controlHandler);
+    }
+
     if (gatewayHub != null) {
       gatewayHub.stop();
     }
@@ -95,8 +71,9 @@ public class GemFireGatewayMod extends BusModBase implements Handler<Message<Jso
 
   @Override
   public void handle(Message<JsonObject> event) {
+    String type = super.getMandatoryString("type", event);
+
     if (event != null && event.body != null) {
-      String type = event.body.getString("type");
       handleType(type, event);
     }
     else {
@@ -106,8 +83,11 @@ public class GemFireGatewayMod extends BusModBase implements Handler<Message<Jso
 
   private void handleType(String type, Message<JsonObject> event) {
     if ("registerGateway".equals(type)) {
-      JsonObject gateway = event.body.getObject("gateway");
-      registerGateway(gateway);
+      JsonObject gatewayConfig = event.body.getObject("gateway");
+      String address = gatewayConfig.getString("address");
+
+      Gateway gateway = GatewayConfigurer.registerGateway(gatewayHub, gatewayConfig);
+      gateway.addListener(new EventBusGatewayEventListener(eb, address));
     }
     else if ("unregisterGateway".equals(type)) {
       JsonObject gateway = event.body.getObject("gateway");
@@ -115,35 +95,16 @@ public class GemFireGatewayMod extends BusModBase implements Handler<Message<Jso
     }
   }
 
+  private void registerRegions(JsonArray regions) throws ClassNotFoundException {
+    for (Object o : regions) {
+      JsonObject regionConfig = (JsonObject) o;
+      Region<Object, Object> region = RegionConfigurer.registerRegion(cache, eb, regionConfig);
 
-  private void registerGateway(JsonObject gatewayConf) {
+      String regionAddress = regionConfig.getString("address");
 
-    if (gatewayConf == null) {
-      return;
+      CacheListener<Object, Object> cacheListener = new EventBusCacheListener(eb, regionAddress);
+      region.getAttributesMutator().addCacheListener(cacheListener);
     }
-
-    final String gatewayId = gatewayConf.getString("id");
-    final String address = gatewayConf.getString("address");
-    int concurrency = gatewayConf.getInteger("concurrency");
-
-    Gateway gateway = gatewayHub.addGateway(gatewayId, concurrency);
-    gateway.addListener(new GatewayEventListener() {
-
-      @Override
-      public boolean processEvents(List<GatewayEvent> eventList) {
-
-        int count = 0;
-        for (GatewayEvent ge : eventList) {
-          eb.send(address, ge.getSerializedValue());
-          count++;
-        }
-
-        return count == eventList.size();
-      }
-
-      @Override
-      public void close() { }
-    });
   }
 
   private void unregisterGateway(JsonObject gateway) {
@@ -153,5 +114,7 @@ public class GemFireGatewayMod extends BusModBase implements Handler<Message<Jso
 
     final String gatewayId = gateway.getString("id");
     gatewayHub.removeGateway(gatewayId);
+
+    // TODO remove handler
   }
 }

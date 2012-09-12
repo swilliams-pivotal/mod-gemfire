@@ -27,6 +27,12 @@ import org.vertx.java.core.Handler;
 import org.vertx.java.core.eventbus.Message;
 import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
+import org.vertx.mods.gemfire.support.ClientCacheConfigurer;
+import org.vertx.mods.gemfire.support.ClientRegionConfigurer;
+import org.vertx.mods.gemfire.support.CountDownLatchHandler;
+import org.vertx.mods.gemfire.support.EventBusCacheListener;
+import org.vertx.mods.gemfire.support.RegionGetHandler;
+import org.vertx.mods.gemfire.support.RegionPutHandler;
 
 import com.gemstone.gemfire.cache.Region;
 import com.gemstone.gemfire.cache.client.ClientCache;
@@ -44,7 +50,7 @@ public class GemFireClientCacheMod extends BusModBase implements Handler<Message
 
   private Set<String> handlers = new HashSet<String>();
 
-  private ClientCache cache;
+  private ClientCache clientCache;
 
   @Override
   public void start() {
@@ -52,29 +58,24 @@ public class GemFireClientCacheMod extends BusModBase implements Handler<Message
 
     JsonObject config = getContainer().getConfig();
 
-    ClientCacheConfigurer configurer = new ClientCacheConfigurer(config);
+    this.clientCache = ClientCacheConfigurer.configure(vertx.fileSystem(), config);
 
-    this.cache = configurer.create();
+    JsonArray regions = config.getArray("regions");
+    registerRegions(regions);
 
-    JsonArray continuousQueries = config.getArray("continuousQueries");
+    JsonArray continuousQueries = config.getArray("continuous-queries");
     registerContinuousQueries(continuousQueries);
 
     JsonArray subscriptions = config.getArray("subscriptions");
     registerSubscriptions(subscriptions);
 
-    String handler = eb.registerHandler("vertx.gemfire.bridge", this);
+    boolean durable = false;
+    if (durable) {
+      clientCache.readyForEvents();
+    }
+
+    String handler = eb.registerHandler("vertx.gemfire.client.control", this);
     handlers.add(handler);
-  }
-
-  private void registerSubscriptions(JsonArray subscriptions) {
-    if (subscriptions == null) {
-      return;
-    }
-
-    for (Object o : subscriptions) {
-      JsonObject subscription = (JsonObject) o;
-      subscribe(subscription);
-    }
   }
 
   @Override
@@ -82,16 +83,49 @@ public class GemFireClientCacheMod extends BusModBase implements Handler<Message
     CountDownLatch latch = new CountDownLatch(handlers.size());
 
     for (String handler : handlers) {
-      eb.unregisterHandler(handler, new CountDownLatchHandler(latch));
+      eb.unregisterHandler(handler, new CountDownLatchHandler<Void>(latch));
     }
 
     latch.await(15000L, TimeUnit.MILLISECONDS);
 
-    if (cache != null) {
-      cache.close();
+    if (clientCache != null) {
+      clientCache.close();
     }
 
     super.stop();
+  }
+
+  private void registerRegions(JsonArray regions) {
+    if (regions == null) {
+      return;
+    }
+
+    for (Object o : regions) {
+      try {
+        JsonObject regionConf = (JsonObject) o;
+        Region<Object, Object> region = ClientRegionConfigurer
+          .registerRegion(clientCache, eb, regionConf);
+
+        String address = regionConf.getString("address");
+        if (address == null) {
+          address = String.format("gemfire.client.%s", region.getName());
+        }
+
+        String putHandler = eb.registerHandler(String.format("%s.put", address), new RegionPutHandler(region));
+        handlers.add(putHandler);
+
+        String getHandler = eb.registerHandler(String.format("%s.get", address), new RegionGetHandler(region));
+        handlers.add(getHandler);
+
+        if (address != null) {
+          region.getAttributesMutator()
+            .addCacheListener(new EventBusCacheListener(eb, String.format("%s.events", address)));
+        }
+
+      } catch (Exception e) {
+        throw new RuntimeException("TODO: TEMPORARY EXCEPTION TYPE", e);
+      }
+    }
   }
 
   private void registerContinuousQueries(JsonArray continuousQueries) {
@@ -110,31 +144,22 @@ public class GemFireClientCacheMod extends BusModBase implements Handler<Message
     final String pool = continuousQuery.getString("pool");
     QueryService queryService;
     if (pool != null) {
-      queryService = cache.getQueryService(pool);
+      queryService = clientCache.getQueryService(pool);
     }
     else {
-      queryService = cache.getQueryService();
+      queryService = clientCache.getQueryService();
     }
 
     String query = continuousQuery.getString("query");
 
-    final String returnAddress = continuousQuery.getString("returnAddress");
-    CqAttributesFactory cqf = new CqAttributesFactory();
-    cqf.addCqListener(new EventBusMappingCqEventListener() {
-
-      @Override
-      protected void send(String baseOp, String queryOp) {
-        JsonObject message = new JsonObject();
-        message.putString("baseOp", baseOp);
-        message.putString("queryOp", queryOp);
-        eb.send(returnAddress, message);
-      }
-    });
-
-    final String queryName = continuousQuery.getString("queryName");
-    final boolean isDurable = continuousQuery.getBoolean("isDurable", false);
+    final String queryName = continuousQuery.getString("name");
+    final boolean isDurable = continuousQuery.getBoolean("durable", false);
 
     try {
+      CqAttributesFactory cqf = new CqAttributesFactory();
+      final String returnAddress = continuousQuery.getString("address");
+      cqf.addCqListener(new EventBusCqListener(eb, returnAddress));
+
       CqAttributes cqa = cqf.create();
       CqQuery cq;
       if (queryName != null) {
@@ -143,6 +168,7 @@ public class GemFireClientCacheMod extends BusModBase implements Handler<Message
       else {
         cq = queryService.newCq(query, cqa, isDurable);
       }
+
       cq.execute();
 
       return cq.getName();
@@ -162,16 +188,27 @@ public class GemFireClientCacheMod extends BusModBase implements Handler<Message
     }
   }
 
+  private void registerSubscriptions(JsonArray subscriptions) {
+    if (subscriptions == null || subscriptions.size() == 0) {
+      return;
+    }
+
+    for (Object o : subscriptions) {
+      JsonObject subscription = (JsonObject) o;
+      subscribe(subscription);
+    }
+  }
+
   private void subscribe(JsonObject subscription) {
     String regionName = subscription.getString("region");
 
     if (regionName != null) {
-      Region<Object, Object> region = cache.getRegion(regionName);
+      Region<Object, Object> region = clientCache.getRegion(regionName);
 
       String policyName = subscription.getString("policy", "DEFAULT");
       InterestResultPolicyMap policyMap = InterestResultPolicyMap.valueOf(policyName.toUpperCase());
-      boolean isDurable = subscription.getBoolean("isDurable", false);
-      boolean receiveValues = subscription.getBoolean("receiveValues", false);
+      boolean isDurable = subscription.getBoolean("durable", false);
+      boolean receiveValues = subscription.getBoolean("receive-values", false);
 
       JsonArray keyArray = subscription.getArray("keys", new JsonArray());
 
@@ -196,7 +233,7 @@ public class GemFireClientCacheMod extends BusModBase implements Handler<Message
     String regionName = unsubscription.getString("region");
 
     if (regionName != null) {
-      Region<Object, Object> region = cache.getRegion(regionName);
+      Region<Object, Object> region = clientCache.getRegion(regionName);
       JsonArray keyArray = unsubscription.getArray("keys", new JsonArray());
 
       List<String> keys = new ArrayList<>();
@@ -219,38 +256,39 @@ public class GemFireClientCacheMod extends BusModBase implements Handler<Message
   @Override
   public void handle(final Message<JsonObject> event) {
     vertx.runOnLoop(new Handler<Void>() {
-
       @Override
       public void handle(Void unused) {
-
-        JsonObject body = event.body;
-        String type = body.getString("type");
-
-        JsonArray subscriptions = body.getArray("subscriptions");
-        if (subscriptions != null) {
-          registerSubscriptions(subscriptions);
-        }
-
-        JsonArray unsubscriptions = body.getArray("unsubscriptions");
-        if (unsubscriptions != null) {
-          for (Object o : unsubscriptions) {
-            JsonObject unsubscription = (JsonObject) o;
-            unsubscribe(unsubscription);
-          }
-        }
-
-        if ("continuousQueries".endsWith(type)) {
-          JsonArray continuousQueries = body.getArray("continuousQueries");
-          for (Object o : continuousQueries) {
-            JsonObject continuousQuery = (JsonObject) o;
-            registerContinuousQuery(continuousQuery);
-          }
-        }
-
-        event.reply();
+        deferredHandle(event);
       }
-      
     });
+  }
+
+  private void deferredHandle(final Message<JsonObject> event) {
+
+    JsonObject body = event.body;
+
+    JsonArray subscriptions = body.getArray("subscriptions");
+    if (subscriptions != null) {
+      registerSubscriptions(subscriptions);
+    }
+
+    JsonArray unsubscriptions = body.getArray("unsubscriptions");
+    if (unsubscriptions != null) {
+      for (Object o : unsubscriptions) {
+        JsonObject unsubscription = (JsonObject) o;
+        unsubscribe(unsubscription);
+      }
+    }
+
+    JsonArray continuousQueries = body.getArray("continuous-queries");
+    if (continuousQueries != null) {
+      for (Object o : continuousQueries) {
+        JsonObject continuousQuery = (JsonObject) o;
+        registerContinuousQuery(continuousQuery);
+      }
+    }
+
+    event.reply();
   }
 
 }

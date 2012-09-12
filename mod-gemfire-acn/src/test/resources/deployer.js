@@ -14,19 +14,43 @@
  * limitations under the License.
  */
 
-load('test_utils.js')
 load('vertx.js')
 
-var tu = new TestUtils();
-
 var config = {
+  'cache-xml-file': 'src/test/resources/test-cache-client.xml',  // Use a default location?
+  'properties-file': 'src/test/resources/client-test.properties', // Use a default location?
+  'module-control-address': 'gemfire.client.control',
+  properties: {},
+  'pool-properties': {},
+  'pool-locators': [
+    {host: 'localhost', port: 40001}
+  ],
+// locators OR servers
+//  'pool-servers': [
+//    {host: 'localhost', port: 41001}
+//  ],
+  'pdx': {
+    // TODO
+  },
+  'regions':[
+    {name: 'testRegion1', shortcut: 'EMPTY'},
+    {name: 'testRegion2', shortcut: 'EMPTY'}
+  ],
+  'subscriptions':[
+    {region: 'testRegion1', policy:'DEFAULT', durable:false, 'receive-values':false, keys:['key1','key3','key7']},
+    {region: 'testRegion2', policy:'DEFAULT', durable:false, 'receive-values':false, regex:'key[248]'}
+  ],
+  'continuous-queries':[
+    {query: 'SELECT o FROM /testRegion1', name:'cq1', durable:false, address: 'test.gemfire.cq1'},
+    {pool: 'pool1', query: 'SELECT o FROM /testRegion2', name:'cq2', durable:'false', address: 'test.gemfire.cq2'},
+  ]
 }
 
-var modID = vertx.deployModule('vertx.gemfire-acn-v1.0', config, 1, function() {
-  tu.appReady();
+vertx.deployModule('vertx.gemfire-acn-v1.0', config, 1, function(id) {
+  console.log('Deployed vertx.gemfire-acn-v1.0 ' + id);
 });
 
 function vertxStop() {
-  tu.unregisterAll();
-  tu.appStopped();
+  //
+  console.log("stopping...");
 }

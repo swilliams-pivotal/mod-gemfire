@@ -15,17 +15,32 @@
  */
 package org.vertx.mods.gemfire;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
+
 import org.vertx.java.core.eventbus.EventBus;
 import org.vertx.java.core.json.JsonObject;
 
+import com.gemstone.gemfire.cache.Declarable;
 import com.gemstone.gemfire.cache.query.CqEvent;
 import com.gemstone.gemfire.cache.query.CqListener;
 
-public class EventBusCqListener implements CqListener {
+public class EventBusCqListener implements CqListener, Declarable {
 
   private EventBus eventBus;
 
   private String address;
+
+  public EventBusCqListener(EventBus eventBus, String address) {
+    this.eventBus = eventBus;
+    this.address = address;
+  }
+
+  @Override
+  public void init(Properties properties) {
+    // TODO Auto-generated method stub
+  }
 
   @Override
   public void close() {
@@ -34,18 +49,29 @@ public class EventBusCqListener implements CqListener {
 
   @Override
   public void onError(CqEvent event) {
-    //
-  }
+
+    Map<String, Object> map = new HashMap<>();
+    map.put("base-operation", event.getBaseOperation());
+    map.put("cq", event.getCq().getName());
+    map.put("key", event.getKey());
+    map.put("value", event.getNewValue());
+    map.put("query-operation", event.getQueryOperation());
+    map.put("throwable", event.getThrowable());
+
+    JsonObject msg = new JsonObject(map);
+    eventBus.send(address, msg);  }
 
   @Override
   public void onEvent(CqEvent event) {
-    JsonObject msg = new JsonObject();
-    
-    event.getBaseOperation();
-    event.getKey();
-    event.getNewValue();
-    event.getQueryOperation();
-    
+
+    Map<String, Object> map = new HashMap<>();
+    map.put("base-operation", event.getBaseOperation());
+    map.put("cq", event.getCq().getName());
+    map.put("key", event.getKey());
+    map.put("value", event.getNewValue());
+    map.put("query-operation", event.getQueryOperation());
+
+    JsonObject msg = new JsonObject(map);
     eventBus.send(address, msg);
   }
 
