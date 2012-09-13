@@ -50,6 +50,7 @@ vertx.deployModule('vertx.gemfire-acn-v1.0', config, 1, function(id) {
   console.log('Deployed vertx.gemfire-acn-v1.0 ' + id);
 });
 
+
 function vertxStop() {
   //
   console.log("stopping...");

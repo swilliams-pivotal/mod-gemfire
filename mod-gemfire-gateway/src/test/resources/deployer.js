@@ -38,7 +38,7 @@ var config = {
   }
 }
 
-var modID = vertx.deployModule('vertx.gemfire-gateway-v1.0', config, 1, function() {
+vertx.deployModule('vertx.gemfire-gateway-v1.0', config, 1, function() {
   tu.appReady();
 });
 

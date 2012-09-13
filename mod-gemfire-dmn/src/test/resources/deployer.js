@@ -25,7 +25,7 @@ var config = {
   'module-control-address': 'gemfire.cache.control',
 }
 
-var modID = vertx.deployModule('vertx.gemfire-dmn-v1.0', config, 1, function() {
+vertx.deployModule('vertx.gemfire-dmn-v1.0', config, 1, function() {
   tu.appReady();
 });
 
