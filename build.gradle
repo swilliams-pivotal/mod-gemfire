@@ -36,13 +36,12 @@ subprojects {
   }
 
   repositories {
+    maven { url 'https://oss.sonatype.org/content/repositories/snapshots' }
     maven { url 'http://repo.springsource.org/release' }
     maven { url 'http://dist.gemstone.com/maven/release' }
-    maven { url 'http://download.java.net/maven/2' }
     mavenCentral()
-    mavenLocal()
   }
-  
+
   dependencies {
     provided "org.vert-x:vertx-core:$vertxVersion"
     provided "org.vert-x:vertx-platform:$vertxVersion"
