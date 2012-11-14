@@ -19,8 +19,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 import org.vertx.java.busmods.BusModBase;
 import org.vertx.java.core.Handler;
@@ -29,7 +27,6 @@ import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
 import org.vertx.mods.gemfire.support.ClientCacheConfigurer;
 import org.vertx.mods.gemfire.support.ClientRegionConfigurer;
-import org.vertx.mods.gemfire.support.CountDownLatchHandler;
 import org.vertx.mods.gemfire.support.EventBusCacheListener;
 import org.vertx.mods.gemfire.support.RegionGetHandler;
 import org.vertx.mods.gemfire.support.RegionPutHandler;
@@ -45,6 +42,7 @@ import com.gemstone.gemfire.cache.query.CqQuery;
 import com.gemstone.gemfire.cache.query.QueryInvalidException;
 import com.gemstone.gemfire.cache.query.QueryService;
 import com.gemstone.gemfire.cache.query.RegionNotFoundException;
+
 
 public class GemFireClientCacheMod extends BusModBase implements Handler<Message<JsonObject>> {
 
@@ -74,19 +72,16 @@ public class GemFireClientCacheMod extends BusModBase implements Handler<Message
       clientCache.readyForEvents();
     }
 
-    String handler = eb.registerHandler("vertx.gemfire.client.control", this);
-    handlers.add(handler);
+    eb.registerHandler("vertx.gemfire.client.control", this);
+    handlers.add("vertx.gemfire.client.control");
   }
 
   @Override
   public void stop() throws Exception {
-    CountDownLatch latch = new CountDownLatch(handlers.size());
 
     for (String handler : handlers) {
-      eb.unregisterHandler(handler, new CountDownLatchHandler<Void>(latch));
+      eb.unregisterHandler(handler, this);
     }
-
-    latch.await(15000L, TimeUnit.MILLISECONDS);
 
     if (clientCache != null) {
       clientCache.close();
@@ -111,11 +106,11 @@ public class GemFireClientCacheMod extends BusModBase implements Handler<Message
           address = String.format("gemfire.client.%s", region.getName());
         }
 
-        String putHandler = eb.registerHandler(String.format("%s.put", address), new RegionPutHandler(region));
-        handlers.add(putHandler);
+        eb.registerHandler(String.format("%s.put", address), new RegionPutHandler(region));
+        handlers.add(String.format("%s.put", address));
 
-        String getHandler = eb.registerHandler(String.format("%s.get", address), new RegionGetHandler(region));
-        handlers.add(getHandler);
+        eb.registerHandler(String.format("%s.get", address), new RegionGetHandler(region));
+        handlers.add(String.format("%s.get", address));
 
         if (address != null) {
           region.getAttributesMutator()

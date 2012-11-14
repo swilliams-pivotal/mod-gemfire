@@ -24,7 +24,7 @@ public class GemFireGatewayMod extends BusModBase implements Handler<Message<Jso
 
   private GatewayHub gatewayHub;
 
-  private String controlHandler;
+  private String address;
 
   @Override
   public void start() {
@@ -32,7 +32,7 @@ public class GemFireGatewayMod extends BusModBase implements Handler<Message<Jso
 
     try {
       JsonObject config = getContainer().getConfig();
-      String address = config.getString("module-control-address", "vertx.gemfire.gateway.control");
+      this.address = config.getString("module-control-address", "vertx.gemfire.gateway.control");
 
       this.cache = CacheConfigurer.configure(config);
 
@@ -44,7 +44,7 @@ public class GemFireGatewayMod extends BusModBase implements Handler<Message<Jso
 
       gatewayHub.start();
 
-      this.controlHandler = eb.registerHandler(address, this);
+      eb.registerHandler(address, this);
 
     } catch (IOException | ClassNotFoundException e) {
       throw new GatewayInitializationException(e);
@@ -54,9 +54,7 @@ public class GemFireGatewayMod extends BusModBase implements Handler<Message<Jso
   @Override
   public void stop() throws Exception {
 
-    if (controlHandler != null) {
-      eb.unregisterHandler(controlHandler);
-    }
+    eb.unregisterHandler(address, this);
 
     if (gatewayHub != null) {
       gatewayHub.stop();
